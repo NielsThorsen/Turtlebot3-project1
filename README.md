@@ -4,3 +4,4 @@ Niels kan ikke skrive LaTex AHAHAHAH
 $\frac{56}{169}$
 Han har ingen ide om hvordan man gør
 $Niels_{dum}^{grim}$
+$Marius er en_{gay}^{faggot}$
