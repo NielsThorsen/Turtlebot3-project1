@@ -1,54 +1,47 @@
 #!/usr/bin/env python3
-import rospy
+import rclpy
+from rclpy.node import Node
 from geometry_msgs.msg import Twist
 import time
 
-def move_forward():
-    # 1. Initialiser din node (fortæl ROS at dette program kører)
-    rospy.init_node('simple_mover', anonymous=True)
+class SimpleMover(Node):
+    def __init__(self):
+        super().__init__('simple_mover')
+        # Opret publisher til /cmd_vel
+        self.publisher_ = self.create_publisher(Twist, 'cmd_vel', 10)
+        
+    def stop_robot(self):
+        # Stop robotten ved at sende 0 i hastighed
+        msg = Twist()
+        msg.linear.x = 0.0
+        msg.angular.z = 0.0
+        self.publisher_.publish(msg)
+        self.get_logger().info('Robot stoppet!')
 
-    # 2. Opret en Publisher
-    # Vi sender til '/cmd_vel', og beskeden er af typen 'Twist'
-    velocity_publisher = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
+    def move_forward(self):
+        msg = Twist()
+        msg.linear.x = 0.1  # Kør fremad med 0.1 m/s
+        msg.angular.z = 0.0
+
+        self.get_logger().info('Kører fremad...')
+        
+        # Vi sender beskeden flere gange i en lille løkke for at sikre den kører
+        # (I en rigtig robot-applikation ville man bruge en timer)
+        start_time = time.time()
+        while time.time() - start_time < 2.0:
+            self.publisher_.publish(msg)
+            time.sleep(0.1)  # Vent 0.1 sekund mellem hver besked
+
+        self.stop_robot()
+
+def main(args=None):
+    rclpy.init(args=args)
     
-    # Hvor ofte skal løkken køre (10 gange i sekundet)
-    rate = rospy.Rate(10) 
-
-    # 3. Definer beskeden (hastigheden)
-    vel_msg = Twist()
+    mover = SimpleMover()
+    mover.move_forward()
     
-    # Sæt hastighed:
-    # linear.x er frem/tilbage (meter per sekund)
-    # angular.z er rotation (radianer per sekund)
-    vel_msg.linear.x = 0.1   # Kør langsomt frem (0.1 m/s)
-    vel_msg.linear.y = 0.0
-    vel_msg.linear.z = 0.0
-    vel_msg.angular.x = 0.0
-    vel_msg.angular.y = 0.0
-    vel_msg.angular.z = 0.0  # Ingen drejning
-
-    rospy.loginfo("Robotten kører fremad...")
-
-    # 4. Kør i en løkke i et bestemt tidsrum (f.eks. 2 sekunder)
-    start_time = time.time()
-    while time.time() - start_time < 2.0:
-        # Tjek om ROS stadig kører (hvis man trykker Ctrl+C)
-        if rospy.is_shutdown():
-            break
-            
-        # Send kommandoen til robotten
-        velocity_publisher.publish(vel_msg)
-        rate.sleep()
-
-    # 5. VIGTIGT: Stop robotten
-    # Hvis vi bare lukker scriptet, kan robotten nogle gange fortsætte lidt.
-    # Vi sender en 'stop' besked (0.0 hastighed).
-    vel_msg.linear.x = 0.0
-    velocity_publisher.publish(vel_msg)
-    rospy.loginfo("Robotten er stoppet.")
+    mover.destroy_node()
+    rclpy.shutdown()
 
 if __name__ == '__main__':
-    try:
-        move_forward()
-    except rospy.ROSInterruptException:
-        pass
+    main()
