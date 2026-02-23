@@ -5,6 +5,7 @@ from geometry_msgs.msg import Twist
 from sensor_msgs.msg import LaserScan
 import math
 from rclpy.qos import qos_profile_sensor_data
+import numpy as np
 
 class AutoDriver(Node):
     def __init__(self):
@@ -25,9 +26,16 @@ class AutoDriver(Node):
         # Brug midten af ranges som "foran" (sikrere end index 0)
         idx = len(msg.ranges) // 2
         afstand = msg.ranges[idx]
+        # Afstand 45 grader til venstre og højre for midten. TO do tjek om de skal byttes om
+        idx_højre = int(idx + math.radians(45)/msg.angle_increment)
+        idx_venstre = int(idx - math.radians(45)/msg.angle_increment)
+        afstand_venstre = msg.ranges[idx_højre]
+        afstand_højre = msg.ranges[idx_venstre]
 
         # --- DEBUG PRINT ---
         print(f"Laser[{idx}] måling: {afstand}")
+        print(f"LaserV[{idx_venstre}] måling: {afstand_venstre}")
+        print(f"LaserH[{idx_højre}] måling: {afstand_højre}")
         # -------------------
 
         cmd = Twist()

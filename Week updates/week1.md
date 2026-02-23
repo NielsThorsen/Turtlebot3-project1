@@ -5,3 +5,5 @@ We managed to ssh (secure shell) into the raspberry pi in the end.
 We got the color detector to work.
 # Week 3
 Marius was not here, Niels made it work anyway rangefinder.
+# Week 4
+Blinking led depending on rangefinder implemented with no dificulties. Niels wasted 30 minutes on finding a screwdriver.
