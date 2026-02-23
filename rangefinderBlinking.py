@@ -1,6 +1,7 @@
 # coding: utf-8
 import time
 import RPi.GPIO as GPIO
+from gpiozero import LED
 
 # Use BCM GPIO references
 # instead of physical pin numbers
@@ -8,6 +9,9 @@ GPIO.setmode(GPIO.BCM)
 
 # Define GPIO to use on Pi
 GPIO_TRIGECHO = 15
+
+# Vi fortæller, at LED'en sidder på GPIO pin 17
+led = LED(17)
 
 print ("Ultrasonic Measurement")
 
@@ -50,7 +54,21 @@ try:
 
         distance = measure()
         print ("  Distance : %.1f cm" % distance)
+        if distance <= 30 and distance >= 25:
+            led.on()
+            print("Mellem 25 og 30 cm")
+            time.sleep(2)
+            led.off()
+        if distance < 25 and distance >= 18:
+            led.on()
+            print("Mellem 18 og 25 cm")
+            time.sleep(1)
+            led.off()
+
         time.sleep(1)
+
+        
+        
 
 except KeyboardInterrupt:
     print("Stop")

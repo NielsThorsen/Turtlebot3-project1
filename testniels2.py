@@ -3,6 +3,7 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import LaserScan
+import math
 from rclpy.qos import qos_profile_sensor_data
 
 class AutoDriver(Node):
@@ -17,29 +18,30 @@ class AutoDriver(Node):
         self.get_logger().info('DEBUG driver startet - venter på laser data...')
 
     def scan_callback(self, msg):
-        # Hent afstanden lige foran
-        afstand = msg.ranges[0]
-        
+        # Tjek at vi har scan-data
+        if not msg.ranges:
+            return
+
+        # Brug midten af ranges som "foran" (sikrere end index 0)
+        idx = len(msg.ranges) // 2
+        afstand = msg.ranges[idx]
+
         # --- DEBUG PRINT ---
-        # Dette vil fortælle os om koden overhovedet kører!
-        print(f"Laser måling: {afstand}") 
+        print(f"Laser[{idx}] måling: {afstand}")
         # -------------------
 
         cmd = Twist()
 
-        # Hvis afstanden er 0.0, betyder det ofte "fejllæsning" eller "uden for rækkevidde"
-        # Vi behandler 0.0 som "fri bane" for at undgå den stopper ved fejl
-        if afstand == 0.0:
-            afstand = 999.9
+        # Håndter 0.0, inf og NaN robust
+        if not math.isfinite(afstand) or afstand == 0.0:
+            afstand = float('inf')
 
         if 0.01 < afstand < 0.40:
             self.get_logger().info(f'Væg tæt på ({afstand:.2f}m)! Drejer...')
             cmd.linear.x = 0.0
             cmd.angular.z = 0.5
         else:
-            # Hvis vi ikke printer her, ved vi ikke om den prøver at køre
-            # print("Kører frem...") 
-            cmd.linear.x = 0.15
+            cmd.linear.x = -0.15
             cmd.angular.z = 0.0
 
         self.publisher_.publish(cmd)
