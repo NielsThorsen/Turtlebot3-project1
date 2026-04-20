@@ -80,24 +80,23 @@ class AutoDriver(Node):
         # =====================================================================
         # ⚙️ TUNING SEKTION - FINJUSTER ROBOTTENS ADFÆRD HER ⚙️
         # =====================================================================
-        # Distancer (i meter)
-        self.DIST_DANGER  = 0.20  # Hvis tættere på end dette -> BAK og SPIND!
-        self.DIST_WARNING = 0.38  # Hvis tættere på end dette -> Brems ned og sving hårdt
+        self.DIST_DANGER  = 0.15  # Hvis tættere på end dette -> BAK og SPIND!
+        self.DIST_WARNING = 0.20  # Øget lidt for at give bedre tid til sving
+        self.DIST_SHOULDER = 0.10 # Hvor tæt må kasser komme på robottens sider under sving?
         
-        # Hastigheder (Husk: Negativ X = Fremad på din robot)
-        self.SPEED_FORWARD = -0.15 # Normal march-hastighed
-        self.SPEED_SLOW    = -0.05 # Kravle-hastighed når vi svinger om hjørner
-        self.SPEED_REVERSE =  0.08 # Bak-hastighed for at rive sig fri
+        # Hastigheder (Negativ X = Fremad)
+        self.SPEED_FORWARD = -0.17 
+        self.SPEED_SLOW    = -0.07
+        self.SPEED_REVERSE =  0.5 # Bak-hastighed
         
         # Drejehastigheder (Rad/s)
-        self.TURN_MILD       = 0.5 # Let justering
-        self.TURN_AGGRESSIVE = 1.3 # Skarpt sving for at undgå at strejfe bokse
-        self.TURN_EXTREME    = 1.8 # Panik-spind når vi er ved at køre galt
+        self.TURN_MILD       = 0.4 
+        self.TURN_AGGRESSIVE = 0.9 
+        self.TURN_EXTREME    = 1.5 
         # =====================================================================
 
-        self.get_logger().info('DEBUG driver startet - Kører Aggressiv Obstacle Avoidance...')
+        self.get_logger().info('DEBUG driver startet - Kører Aggressiv FOV Obstacle Avoidance...')
 
-    # Hjælpefunktion: Får den korteste afstand i et 'slice' (udsnit) af laseren
     def get_min_dist(self, slice_arr):
         valid = [x for x in slice_arr if math.isfinite(x) and x > 0.02]
         return min(valid) if valid else float('inf')
@@ -108,81 +107,84 @@ class AutoDriver(Node):
 
         idx = len(msg.ranges) // 2 # Midten (Fronten)
         
-        # Udregn hvor mange index der går på bestemte vinkler
-        offset_15 = int(math.radians(15) / msg.angle_increment)
-        offset_45 = int(math.radians(45) / msg.angle_increment)
-        offset_90 = int(math.radians(90) / msg.angle_increment)
+        # Udvid FOV (Field of View) for at dække mere
+        offset_20  = int(math.radians(20) / msg.angle_increment)
+        offset_75  = int(math.radians(75) / msg.angle_increment)
+        offset_110 = int(math.radians(110) / msg.angle_increment) # Skulder-kig
 
-        # Hent ZONER i stedet for enkelte punkter (Dækker hjørner af bokse)
-        # Front dækker -15 til +15 grader
-        front_slice = msg.ranges[idx - offset_15 : idx + offset_15]
-        # Venstre dækker +15 til +45 grader
-        left_slice  = msg.ranges[idx + offset_15 : idx + offset_45]
-        # Højre dækker -45 til -15 grader
-        right_slice = msg.ranges[idx - offset_45 : idx - offset_15]
+        # Hent ZONER (Brede snit i stedet for enkelte stråler)
+        front_slice = msg.ranges[idx - offset_20 : idx + offset_20]
+        left_slice  = msg.ranges[idx + offset_20 : idx + offset_75]
+        right_slice = msg.ranges[idx - offset_75 : idx - offset_20]
+        
+        # DE NYE "SKULDER" ZONER (Tjekker siderne for at undgå at snitte hjørner)
+        shoulder_left_slice  = msg.ranges[idx + offset_75 : idx + offset_110]
+        shoulder_right_slice = msg.ranges[idx - offset_110 : idx - offset_75]
 
-        # Få den farligste (mindste) afstand i hver zone
+        # Få den mindste afstand i hver zone
         dist_front = self.get_min_dist(front_slice)
         dist_left  = self.get_min_dist(left_slice)
         dist_right = self.get_min_dist(right_slice)
-
-        # Side-kollisionstjek (90 grader) til collision counter
-        dist_l90 = self.get_min_dist(msg.ranges[idx + offset_45 : idx + offset_90])
-        dist_r90 = self.get_min_dist(msg.ranges[idx - offset_90 : idx - offset_45])
+        dist_shoulder_l = self.get_min_dist(shoulder_left_slice)
+        dist_shoulder_r = self.get_min_dist(shoulder_right_slice)
 
         cmd = Twist()
 
-        # Tæl kollisioner
-        if dist_front <= 0.15 or dist_l90 <= 0.15 or dist_r90 <= 0.15:
+        # Tæl kollisioner (Tjekker nu også skuldrene)
+        if dist_front <= 0.15 or dist_shoulder_l <= 0.12 or dist_shoulder_r <= 0.12:
             self.collisions += 1
 
         nan_pct = self.NaNPercentage(msg)
 
-        # --- RECOVERY MODE (Glastests og sorte huller) ---
+        # --- RECOVERY MODE (Glastests / Sorte Huller) ---
         if nan_pct > self.recovery_enter_threshold:
             self.recovery_mode = True
 
         if self.recovery_mode:
             if nan_pct > self.recovery_exit_threshold:
-                cmd.linear.x = self.SPEED_REVERSE  # Bak ud af problemet
+                cmd.linear.x = self.SPEED_REVERSE
                 cmd.angular.z = random.uniform(-self.TURN_EXTREME, self.TURN_EXTREME)
                 self.publisher_.publish(cmd)
-                return  # Spring resten af logikken over mens vi recover
+                return 
             else:
                 self.recovery_mode = False
 
-        # --- AGGRESSIV STYRELOGIK ---
-        
-        # 1. DANGER ZONE: Vi har ramt noget eller er millimeter fra!
-        if dist_front < self.DIST_DANGER or dist_left < self.DIST_DANGER or dist_right < self.DIST_DANGER:
-            cmd.linear.x = self.SPEED_REVERSE # BAK! (Positiv X)
-            
-            # Sving ekstremt hurtigt væk fra den tætteste forhindring
-            if dist_left < dist_right:
-                cmd.angular.z = -self.TURN_EXTREME # Sving til højre
-            else:
-                cmd.angular.z = self.TURN_EXTREME  # Sving til venstre
+        # --- STYRELOGIK ---
 
-        # 2. WARNING ZONE: Der er en forhindring foran os (f.eks. boks), gør klar til undvigelse
-        elif dist_front < self.DIST_WARNING or dist_left < self.DIST_WARNING or dist_right < self.DIST_WARNING:
-            cmd.linear.x = self.SPEED_SLOW # Sænk farten markant (-0.05)
+        # 0. V-SHAPE FÆLDEN (Blindgyde / Hjørne)
+        # Hvis fronten OG begge sider er blokeret, er vi i et hjørne. Vi skal bakke og dreje hårdt for at slippe ud.
+        if dist_front < self.DIST_WARNING and dist_left < self.DIST_WARNING and dist_right < self.DIST_WARNING:
+            cmd.linear.x = self.SPEED_REVERSE
+            cmd.angular.z = self.TURN_EXTREME # Vælg én fast retning for at bryde ud af V-shapen
             
-            # Beslut vej baseret på hvilken side der har mest plads
+        # 1. DANGER ZONE ELLER CORNER CLIPPING (Snitter en boks)
+        # Hvis vi er alt for tæt på foran, ELLER hvis vores "skuldre" er ved at skrabe imod en boks.
+        elif dist_front < self.DIST_DANGER or dist_left < self.DIST_DANGER or dist_right < self.DIST_DANGER or dist_shoulder_l < self.DIST_SHOULDER or dist_shoulder_r < self.DIST_SHOULDER:
+            cmd.linear.x = self.SPEED_REVERSE # Bak for at skabe plads
+            
+            # Tjek hvilken side vi er ved at ramme, og sving væk fra den
+            if dist_left < dist_right or dist_shoulder_l < dist_shoulder_r:
+                cmd.angular.z = -self.TURN_EXTREME # Sving skarpt højre
+            else:
+                cmd.angular.z = self.TURN_EXTREME  # Sving skarpt venstre
+
+        # 2. WARNING ZONE: Gør klar til at undvige en forhindring længere fremme
+        elif dist_front < self.DIST_WARNING or dist_left < self.DIST_WARNING or dist_right < self.DIST_WARNING:
+            cmd.linear.x = self.SPEED_SLOW # Sænk farten
+            
             if dist_left < dist_right:
                 cmd.angular.z = -self.TURN_AGGRESSIVE # Sving højre
             else:
                 cmd.angular.z = self.TURN_AGGRESSIVE  # Sving venstre
 
-        # 3. KLARE LINJER: Tryk speederen i bund
+        # 3. KLARE LINJER: Fremad (med let centrering)
         else:
             cmd.linear.x = self.SPEED_FORWARD
             
-            # Lille ekstra feature: Centrer robotten i gange. 
-            # Hvis venstre væg er lidt tættere på end højre væg, juster blødt.
             if dist_left < 0.6 and dist_right < 0.6:
-                if dist_left < dist_right - 0.1:
+                if dist_left < dist_right - 0.15:
                     cmd.angular.z = -self.TURN_MILD
-                elif dist_right < dist_left - 0.1:
+                elif dist_right < dist_left - 0.15:
                     cmd.angular.z = self.TURN_MILD
                 else:
                     cmd.angular.z = 0.0
