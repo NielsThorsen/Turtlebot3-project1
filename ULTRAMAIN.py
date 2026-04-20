@@ -10,9 +10,6 @@ import time
 import random
 
 class AutoDriver(Node):
-    # Counters
-    collisions = 0
-    linear_speeds = []
 
     def __init__(self):
         super().__init__('auto_driver')
@@ -22,7 +19,17 @@ class AutoDriver(Node):
             'scan',
             self.scan_callback,
             qos_profile_sensor_data)
+        # Counters
+        self.collisions = 0
+        self.linear_speeds = []
+
+        # NaN handling
+        self.recovery_mode = False
+        self.recovery_enter_threshold = 50
+        self.recovery_exit_threshold = 30
+
         self.get_logger().info('DEBUG driver startet - venter på laser data...')
+
 
     def scan_callback(self, msg):
         # Tjek at vi har scan-data
@@ -62,23 +69,54 @@ class AutoDriver(Node):
             self.collisions += 1
             print(f"Collisions detected {self.collisions}")
 
-        # Velocity dependent on distances
-        if self.NaNPercentage(msg) > 10:
-            if self.NaNPercentage(msg) > 12:
-                cmd.linear.x = 0.1
-                cmd.angular.z = random.uniform(0.5,-0.5)
-                print(f"WUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUU {self.NaNPercentage(msg)}")
-        elif 0.01 < afstand_venstre < 0.25:
-            print(f'Væg tæt på ({afstand:.2f}m)! Drejer...')
-            cmd.linear.x = -0.05
-            cmd.angular.z = -0.3
-        elif 0.01 < afstand_højre < 0.25:
-            print(f'Væg tæt på ({afstand:.2f}m)! Drejer...')
-            cmd.linear.x = -0.05
-            cmd.angular.z = 0.3
-        else:
+        # NaN percentage
+        nan_pct = self.NaNPercentage(msg)
+
+        # For checking which direction is closest
+        distances = {
+            'front': afstand,
+            'left': afstand_venstre,
+            'right': afstand_højre
+        }
+
+        # Find closest valid distance
+        valid_distances = {k: v for k, v in distances.items() 
+                        if math.isfinite(v) and v > 0.01}
+
+        if not valid_distances:
+            # No valid readings, default behavior
             cmd.linear.x = -0.15
             cmd.angular.z = 0.0
+        else:
+            closest_dir = min(valid_distances, key=valid_distances.get)
+            closest_dist = valid_distances[closest_dir]
+            
+            # if too close to wall back up and turn away from closest wall    
+            if nan_pct > self.recovery_enter_threshold:
+                self.recovery_mode = True
+
+            if self.recovery_mode:
+                if nan_pct > self.recovery_exit_threshold:
+                    cmd.linear.x = 0.15
+                    cmd.angular.z = random.uniform(-0.5, 0.5)
+                    time.sleep(2)
+                else:
+                    self.recovery_mode = False
+
+                    
+
+            if closest_dist < 0.20:
+                # Wall close—turn away from it
+                cmd.linear.x = -0.05
+                if closest_dir == 'left':
+                    cmd.angular.z = -0.3  # Turn right
+                elif closest_dir == 'right':
+                    cmd.angular.z = 0.3  # Turn left
+            else:
+                # No immediate threat, move forward
+                cmd.linear.x = -0.15
+                cmd.angular.z = 0.0
+
 
         self.publisher_.publish(cmd)
         self.linear_speeds.append(cmd.linear.x)
