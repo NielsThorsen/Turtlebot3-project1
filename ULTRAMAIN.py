@@ -93,11 +93,28 @@ class AutoDriver(Node):
         # Drejehastigheder (Rad/s)
         self.TURN_MILD       = 0.4 
         self.TURN_AGGRESSIVE = 0.9 
-        self.TURN_EXTREME    = 1.5 
+        self.TURN_EXTREME    = 1.5
         # =====================================================================
 
         self.get_logger().info('DEBUG driver startet - Kører Aggressiv FOV Obstacle Avoidance...')
-
+        # function to calculate turn speed depending on distances
+    def var_turning(self, dist_right, dist_left):
+        if (math.isfinite(dist_left) and math.isfinite(dist_right)):
+            if dist_left < dist_right:
+                if (-1 * (dist_left / dist_right)**2 > -3):
+                    return -1 * (dist_right / dist_left)**2
+                else:
+                    return -3
+            elif dist_right < dist_left:
+                if ((dist_left / dist_right)**2 < 3):
+                    return (dist_left / dist_right)**2
+                else:
+                    return 3
+            else:
+                return 0.0
+        else:
+            return 0.0
+        
     def get_min_dist(self, slice_arr):
         valid = [x for x in slice_arr if math.isfinite(x) and x > 0.02]
         return min(valid) if valid else float('inf')
@@ -176,7 +193,7 @@ class AutoDriver(Node):
                 cmd.angular.z = self.TURN_EXTREME  # Sving skarpt venstre
 
         # 2. WARNING ZONE: Gør klar til at undvige en forhindring længere fremme
-        elif dist_front < self.DIST_WARNING or dist_left < self.DIST_WARNING or dist_right < self.DIST_WARNING:
+        elif dist_front < self.DIST_WARNING and (dist_left < self.DIST_WARNING or dist_right < self.DIST_WARNING):
             cmd.linear.x = self.SPEED_SLOW # Sænk farten
             print("WARNING ZONE")
             if dist_left < dist_right:
@@ -191,12 +208,8 @@ class AutoDriver(Node):
             cmd.linear.x = self.SPEED_FORWARD
             
             if dist_left < 0.6 and dist_right < 0.6:
-                if dist_left < dist_right - 0.15:
-                    cmd.angular.z = -self.TURN_MILD
-                elif dist_right < dist_left - 0.15:
-                    cmd.angular.z = self.TURN_MILD
-                else:
-                    cmd.angular.z = 0.0
+                    cmd.angular.z = self.var_turning(dist_right, dist_left) * self.TURN_MILD 
+                    print(self.var_turning(dist_right, dist_left) * self.TURN_MILD)
             else:
                 cmd.angular.z = 0.0
 
