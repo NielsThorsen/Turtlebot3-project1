@@ -83,7 +83,8 @@ class AutoDriver(Node):
         self.DIST_DANGER  = 0.15  # Hvis tættere på end dette -> BAK og SPIND!
         self.DIST_WARNING = 0.20  # Øget lidt for at give bedre tid til sving
         self.DIST_SHOULDER = 0.10 # Hvor tæt må kasser komme på robottens sider under sving?
-        
+        self.DIST_VSHAPE = 0.20 # Når den rammer en v-shape
+
         # Hastigheder (Negativ X = Fremad)
         self.SPEED_FORWARD = -0.17 
         self.SPEED_SLOW    = -0.07
@@ -111,11 +112,13 @@ class AutoDriver(Node):
         offset_20  = int(math.radians(20) / msg.angle_increment)
         offset_75  = int(math.radians(75) / msg.angle_increment)
         offset_110 = int(math.radians(110) / msg.angle_increment) # Skulder-kig
+        offset_180 = int(math.radians(110) / msg.angle_increment) # Kig bagud
 
         # Hent ZONER (Brede snit i stedet for enkelte stråler)
         front_slice = msg.ranges[idx - offset_20 : idx + offset_20]
         left_slice  = msg.ranges[idx + offset_20 : idx + offset_75]
         right_slice = msg.ranges[idx - offset_75 : idx - offset_20]
+        back_slice = msg.ranges[idx - offset_180: idx - offset_180]
         
         # DE NYE "SKULDER" ZONER (Tjekker siderne for at undgå at snitte hjørner)
         shoulder_left_slice  = msg.ranges[idx + offset_75 : idx + offset_110]
@@ -127,6 +130,7 @@ class AutoDriver(Node):
         dist_right = self.get_min_dist(right_slice)
         dist_shoulder_l = self.get_min_dist(shoulder_left_slice)
         dist_shoulder_r = self.get_min_dist(shoulder_right_slice)
+        dist_back = self.get_min_dist(back_slice)
 
         cmd = Twist()
 
@@ -145,6 +149,7 @@ class AutoDriver(Node):
                 cmd.linear.x = self.SPEED_REVERSE
                 cmd.angular.z = random.uniform(-self.TURN_EXTREME, self.TURN_EXTREME)
                 self.publisher_.publish(cmd)
+                print("Recovery mode")
                 return 
             else:
                 self.recovery_mode = False
@@ -153,15 +158,17 @@ class AutoDriver(Node):
 
         # 0. V-SHAPE FÆLDEN (Blindgyde / Hjørne)
         # Hvis fronten OG begge sider er blokeret, er vi i et hjørne. Vi skal bakke og dreje hårdt for at slippe ud.
-        if dist_front < self.DIST_WARNING and dist_left < self.DIST_WARNING and dist_right < self.DIST_WARNING:
-            cmd.linear.x = self.SPEED_REVERSE
+        if dist_front < self.DIST_VSHAPE and dist_left < self.DIST_VSHAPE and dist_right < self.DIST_VSHAPE:
+            self.DIST_VSHAPE = 0.25
+            # cmd.linear.x = self.SPEED_REVERSE
+            print("V-Shape")
             cmd.angular.z = self.TURN_EXTREME # Vælg én fast retning for at bryde ud af V-shapen
             
         # 1. DANGER ZONE ELLER CORNER CLIPPING (Snitter en boks)
         # Hvis vi er alt for tæt på foran, ELLER hvis vores "skuldre" er ved at skrabe imod en boks.
         elif dist_front < self.DIST_DANGER or dist_left < self.DIST_DANGER or dist_right < self.DIST_DANGER or dist_shoulder_l < self.DIST_SHOULDER or dist_shoulder_r < self.DIST_SHOULDER:
             cmd.linear.x = self.SPEED_REVERSE # Bak for at skabe plads
-            
+            print("Corner Clipping")
             # Tjek hvilken side vi er ved at ramme, og sving væk fra den
             if dist_left < dist_right or dist_shoulder_l < dist_shoulder_r:
                 cmd.angular.z = -self.TURN_EXTREME # Sving skarpt højre
@@ -171,7 +178,7 @@ class AutoDriver(Node):
         # 2. WARNING ZONE: Gør klar til at undvige en forhindring længere fremme
         elif dist_front < self.DIST_WARNING or dist_left < self.DIST_WARNING or dist_right < self.DIST_WARNING:
             cmd.linear.x = self.SPEED_SLOW # Sænk farten
-            
+            print("WARNING ZONE")
             if dist_left < dist_right:
                 cmd.angular.z = -self.TURN_AGGRESSIVE # Sving højre
             else:
@@ -179,6 +186,8 @@ class AutoDriver(Node):
 
         # 3. KLARE LINJER: Fremad (med let centrering)
         else:
+            print("Klare Linjer")
+            self.DIST_VSHAPE = 0.20
             cmd.linear.x = self.SPEED_FORWARD
             
             if dist_left < 0.6 and dist_right < 0.6:
