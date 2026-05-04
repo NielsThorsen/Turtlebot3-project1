@@ -11,6 +11,8 @@ import random
 import asyncio
 import threading
 import smbus
+from gpiozero import LED
+from time import sleep
 
 async def rgb(node):
     try:
@@ -23,7 +25,7 @@ async def rgb(node):
         return
 
     await asyncio.sleep(1)
-
+    led = LED(14)
     last_red_time = 0.0  # Forhindrer "dobbelt-tælling" af samme farveklat
     cooldown = 3.0       # Vent 3 sekunder mellem hver tælling
 
@@ -33,19 +35,26 @@ async def rgb(node):
 
             green = data[1] * 256 + data[0]
             red   = data[3] * 256 + data[2]
-            blue  = data[5] * 256 + data[4]
+            blue  = data[5] * 256 + dataor dist_right < 0.6:
+                    cmd.angular.z = self.var_turning(dist_right, dist_left) * self.TURN_MILD 
+                    print(self.var_turning(dist_right, dist_left))
+            else:
+                cmd.angular.z = 0.0[4]
 
             r_8 = red >> 8
             g_8 = green >> 8
             b_8 = blue >> 8
 
-            if (30 <= r_8 <= 55) and (15 <= g_8 <= 45) and (5 <= b_8 <= 25):
-                current_time = time.time()
+            current_time = time.time()
+            if r_8 > 70 and r_8 > b_8 and g_8 > 40 and g_8 < 70 and b_8 < 40:
                 if (current_time - last_red_time) > cooldown:
                     node.red_count += 1
                     last_red_time = current_time
                     color_block = f"\x1b[48;2;{r_8};{g_8};{b_8}m      \x1b[0m"
-                    node.get_logger().info(f"Rød registreret! Total: {node.red_count} | Farve: {color_block}")
+                    node.get_logger().info(f"Rød registreret! Total: {node.red_count} | Farve: {color_block} | RGB: ({r_8}, {g_8}, {b_8}")
+                    led.on()
+                    sleep(1)
+                    led.off()
 
         except Exception as e:
             pass # Ignorerer små I2C fejl
@@ -80,9 +89,9 @@ class AutoDriver(Node):
         # =====================================================================
         # ⚙️ TUNING SEKTION - FINJUSTER ROBOTTENS ADFÆRD HER ⚙️
         # =====================================================================
-        self.DIST_DANGER  = 0.15  # Hvis tættere på end dette -> BAK og SPIND!
+        self.DIST_DANGER  = 0.18  # Hvis tættere på end dette -> BAK og SPIND!
         self.DIST_WARNING = 0.20  # Øget lidt for at give bedre tid til sving
-        self.DIST_SHOULDER = 0.10 # Hvor tæt må kasser komme på robottens sider under sving?
+        self.DIST_SHOULDER = 0.18 # Hvor tæt må kasser komme på robottens sider under sving?
         self.DIST_VSHAPE = 0.20 # Når den rammer en v-shape
 
         # Hastigheder (Negativ X = Fremad)
@@ -101,13 +110,13 @@ class AutoDriver(Node):
     def var_turning(self, dist_right, dist_left):
         if (math.isfinite(dist_left) and math.isfinite(dist_right)):
             if dist_left < dist_right:
-                if (-1 * (dist_left / dist_right)**2 > -3):
-                    return -1 * (dist_right / dist_left)**2
+                if (-1 * (dist_left / dist_right) < -3):
+                    return -1 * (dist_right / dist_left)
                 else:
                     return -3
             elif dist_right < dist_left:
-                if ((dist_left / dist_right)**2 < 3):
-                    return (dist_left / dist_right)**2
+                if ((dist_left / dist_right) < 3):
+                    return (dist_left / dist_right)
                 else:
                     return 3
             else:
@@ -181,17 +190,6 @@ class AutoDriver(Node):
             print("V-Shape")
             cmd.angular.z = self.TURN_EXTREME # Vælg én fast retning for at bryde ud af V-shapen
             
-        # 1. DANGER ZONE ELLER CORNER CLIPPING (Snitter en boks)
-        # Hvis vi er alt for tæt på foran, ELLER hvis vores "skuldre" er ved at skrabe imod en boks.
-        elif dist_front < self.DIST_DANGER or dist_left < self.DIST_DANGER or dist_right < self.DIST_DANGER or dist_shoulder_l < self.DIST_SHOULDER or dist_shoulder_r < self.DIST_SHOULDER:
-            cmd.linear.x = self.SPEED_REVERSE # Bak for at skabe plads
-            print("Corner Clipping")
-            # Tjek hvilken side vi er ved at ramme, og sving væk fra den
-            if dist_left < dist_right or dist_shoulder_l < dist_shoulder_r:
-                cmd.angular.z = -self.TURN_EXTREME # Sving skarpt højre
-            else:
-                cmd.angular.z = self.TURN_EXTREME  # Sving skarpt venstre
-
         # 2. WARNING ZONE: Gør klar til at undvige en forhindring længere fremme
         elif dist_front < self.DIST_WARNING and (dist_left < self.DIST_WARNING or dist_right < self.DIST_WARNING):
             cmd.linear.x = self.SPEED_SLOW # Sænk farten
@@ -207,9 +205,9 @@ class AutoDriver(Node):
             self.DIST_VSHAPE = 0.20
             cmd.linear.x = self.SPEED_FORWARD
             
-            if dist_left < 0.6 and dist_right < 0.6:
+            if dist_left < 0.4 or dist_right < 0.4:
                     cmd.angular.z = self.var_turning(dist_right, dist_left) * self.TURN_MILD 
-                    print(self.var_turning(dist_right, dist_left) * self.TURN_MILD)
+                    print(self.var_turning(dist_right, dist_left))
             else:
                 cmd.angular.z = 0.0
 
