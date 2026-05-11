@@ -35,11 +35,7 @@ async def rgb(node):
 
             green = data[1] * 256 + data[0]
             red   = data[3] * 256 + data[2]
-            blue  = data[5] * 256 + dataor dist_right < 0.6:
-                    cmd.angular.z = self.var_turning(dist_right, dist_left) * self.TURN_MILD 
-                    print(self.var_turning(dist_right, dist_left))
-            else:
-                cmd.angular.z = 0.0[4]
+            blue  = data[5] * 256 + data[4]
 
             r_8 = red >> 8
             g_8 = green >> 8
