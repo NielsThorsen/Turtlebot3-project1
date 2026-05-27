@@ -19,15 +19,15 @@ async def rgb(node):
         bus = smbus.SMBus(1)
         # ISL29125 address, 0x44(68)
         bus.write_byte_data(0x44, 0x01, 0x05)
-        node.get_logger().info('Farvesensor initialiseret.')
+        node.get_logger().info('Color sensor initialized.')
     except Exception as e:
-        node.get_logger().error(f"I2C Forbindelsesfejl: {e}")
+        node.get_logger().error(f"I2C Connection error: {e}")
         return
 
     await asyncio.sleep(1)
     led = LED(14)
-    last_red_time = 0.0  # Forhindrer "dobbelt-tælling" af samme farveklat
-    cooldown = 3.0       # Vent 3 sekunder mellem hver tælling
+    last_red_time = 0.0  # Prevents double-counting the same color spot
+    cooldown = 3.0       # Wait 3 seconds between each count
 
     while True:
         try:
@@ -47,15 +47,15 @@ async def rgb(node):
                     node.red_count += 1
                     last_red_time = current_time
                     color_block = f"\x1b[48;2;{r_8};{g_8};{b_8}m      \x1b[0m"
-                    node.get_logger().info(f"Rød registreret! Total: {node.red_count} | Farve: {color_block} | RGB: ({r_8}, {g_8}, {b_8}")
+                    node.get_logger().info(f"Red detected! Total: {node.red_count} | Color: {color_block} | RGB: ({r_8}, {g_8}, {b_8})")
                     led.on()
                     sleep(1)
                     led.off()
 
         except Exception as e:
-            pass # Ignorerer små I2C fejl
+            pass # Ignore minor I2C errors
         
-        await asyncio.sleep(0.1) # Læs hurtigt (10 Hz) så vi ikke misser farven i fart
+        await asyncio.sleep(0.1) # Read fast (10 Hz) so we don't miss the color while moving
 
 
 def start_async_loop(loop, node):
@@ -83,25 +83,25 @@ class AutoDriver(Node):
         self.recovery_exit_threshold = 30
 
         # =====================================================================
-        # ⚙️ TUNING SEKTION - FINJUSTER ROBOTTENS ADFÆRD HER ⚙️
+        # TUNING SECTION - FINE-TUNE ROBOT BEHAVIOR HERE
         # =====================================================================
-        self.DIST_DANGER  = 0.18  # Hvis tættere på end dette -> BAK og SPIND!
-        self.DIST_WARNING = 0.20  # Øget lidt for at give bedre tid til sving
-        self.DIST_SHOULDER = 0.18 # Hvor tæt må kasser komme på robottens sider under sving?
-        self.DIST_VSHAPE = 0.20 # Når den rammer en v-shape
+        self.DIST_DANGER  = 0.18  # If closer than this -> REVERSE and SPIN!
+        self.DIST_WARNING = 0.20  # Increased slightly to allow more time for turning
+        self.DIST_SHOULDER = 0.18 # How close can boxes get to the robot's sides during turns?
+        self.DIST_VSHAPE = 0.20 # When it hits a v-shape
 
-        # Hastigheder (Negativ X = Fremad)
+        # Speeds (Negative X = Forward)
         self.SPEED_FORWARD = -0.17 
         self.SPEED_SLOW    = -0.07
-        self.SPEED_REVERSE =  0.5 # Bak-hastighed
+        self.SPEED_REVERSE =  0.5 # Reverse speed
         
-        # Drejehastigheder (Rad/s)
+        # Turn speeds (Rad/s)
         self.TURN_MILD       = 0.4 
         self.TURN_AGGRESSIVE = 0.9 
         self.TURN_EXTREME    = 1.5
         # =====================================================================
 
-        self.get_logger().info('DEBUG driver startet - Kører Aggressiv FOV Obstacle Avoidance...')
+        self.get_logger().info('DEBUG driver started - Running Aggressive FOV Obstacle Avoidance...')
         # function to calculate turn speed depending on distances
     def var_turning(self, dist_right, dist_left):
         if (math.isfinite(dist_left) and math.isfinite(dist_right)):
@@ -128,25 +128,25 @@ class AutoDriver(Node):
         if not msg.ranges:
             return
 
-        idx = len(msg.ranges) // 2 # Midten (Fronten)
+        idx = len(msg.ranges) // 2 # Center (Front)
         
-        # Udvid FOV (Field of View) for at dække mere
+        # Expand FOV (Field of View) to cover more
         offset_20  = int(math.radians(20) / msg.angle_increment)
         offset_75  = int(math.radians(75) / msg.angle_increment)
-        offset_110 = int(math.radians(110) / msg.angle_increment) # Skulder-kig
-        offset_180 = int(math.radians(110) / msg.angle_increment) # Kig bagud
+        offset_110 = int(math.radians(110) / msg.angle_increment) # Shoulder check
+        offset_180 = int(math.radians(110) / msg.angle_increment) # Look backwards
 
-        # Hent ZONER (Brede snit i stedet for enkelte stråler)
+        # Get ZONES (Wide slices instead of single rays)
         front_slice = msg.ranges[idx - offset_20 : idx + offset_20]
         left_slice  = msg.ranges[idx + offset_20 : idx + offset_75]
         right_slice = msg.ranges[idx - offset_75 : idx - offset_20]
         back_slice = msg.ranges[idx - offset_180: idx - offset_180]
         
-        # DE NYE "SKULDER" ZONER (Tjekker siderne for at undgå at snitte hjørner)
+        # THE NEW "SHOULDER" ZONES (Check sides to avoid clipping corners)
         shoulder_left_slice  = msg.ranges[idx + offset_75 : idx + offset_110]
         shoulder_right_slice = msg.ranges[idx - offset_110 : idx - offset_75]
 
-        # Få den mindste afstand i hver zone
+        # Get the minimum distance in each zone
         dist_front = self.get_min_dist(front_slice)
         dist_left  = self.get_min_dist(left_slice)
         dist_right = self.get_min_dist(right_slice)
@@ -156,13 +156,13 @@ class AutoDriver(Node):
 
         cmd = Twist()
 
-        # Tæl kollisioner (Tjekker nu også skuldrene)
+        # Count collisions (Now also checking shoulders)
         if dist_front <= 0.15 or dist_shoulder_l <= 0.12 or dist_shoulder_r <= 0.12:
             self.collisions += 1
 
         nan_pct = self.NaNPercentage(msg)
 
-        # --- RECOVERY MODE (Glastests / Sorte Huller) ---
+        # --- RECOVERY MODE (Glass tests / Black holes) ---
         if nan_pct > self.recovery_enter_threshold:
             self.recovery_mode = True
 
@@ -176,28 +176,28 @@ class AutoDriver(Node):
             else:
                 self.recovery_mode = False
 
-        # --- STYRELOGIK ---
+        # --- CONTROL LOGIC ---
 
-        # 0. V-SHAPE FÆLDEN (Blindgyde / Hjørne)
-        # Hvis fronten OG begge sider er blokeret, er vi i et hjørne. Vi skal bakke og dreje hårdt for at slippe ud.
+        # 0. THE V-SHAPE TRAP (Dead end / Corner)
+        # If the front AND both sides are blocked, we are in a corner. We need to reverse and turn hard to escape.
         if dist_front < self.DIST_VSHAPE and dist_left < self.DIST_VSHAPE and dist_right < self.DIST_VSHAPE:
             self.DIST_VSHAPE = 0.25
             # cmd.linear.x = self.SPEED_REVERSE
             print("V-Shape")
-            cmd.angular.z = self.TURN_EXTREME # Vælg én fast retning for at bryde ud af V-shapen
+            cmd.angular.z = self.TURN_EXTREME # Choose one fixed direction to break out of the V-shape
             
-        # 2. WARNING ZONE: Gør klar til at undvige en forhindring længere fremme
+        # 2. WARNING ZONE: Prepare to dodge an obstacle further ahead
         elif dist_front < self.DIST_WARNING and (dist_left < self.DIST_WARNING or dist_right < self.DIST_WARNING):
-            cmd.linear.x = self.SPEED_SLOW # Sænk farten
+            cmd.linear.x = self.SPEED_SLOW # Slow down
             print("WARNING ZONE")
             if dist_left < dist_right:
-                cmd.angular.z = -self.TURN_AGGRESSIVE # Sving højre
+                cmd.angular.z = -self.TURN_AGGRESSIVE # Turn right
             else:
-                cmd.angular.z = self.TURN_AGGRESSIVE  # Sving venstre
+                cmd.angular.z = self.TURN_AGGRESSIVE  # Turn left
 
-        # 3. KLARE LINJER: Fremad (med let centrering)
+        # 3. CLEAR LINES: Forward (with slight centering)
         else:
-            print("Klare Linjer")
+            print("Clear Lines")
             self.DIST_VSHAPE = 0.20
             cmd.linear.x = self.SPEED_FORWARD
             
@@ -244,9 +244,9 @@ def main(args=None):
         if node.linear_speeds:
             print(f"Average Speed: {sum(node.linear_speeds)/len(node.linear_speeds) * -1:.3f}")
         print(f"Collisions: {node.collisions}")
-        print(f"Røde farver fundet undervejs: {node.red_count}")
+        print(f"Red colors found along the way: {node.red_count}")
         
-        node.publisher_.publish(Twist()) # Stop robotten
+        node.publisher_.publish(Twist()) # Stop the robot
         node.destroy_node()
         rclpy.shutdown()
 
