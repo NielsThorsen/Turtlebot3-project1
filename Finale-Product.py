@@ -134,13 +134,11 @@ class AutoDriver(Node):
         offset_20  = int(math.radians(20) / msg.angle_increment)
         offset_75  = int(math.radians(75) / msg.angle_increment)
         offset_110 = int(math.radians(110) / msg.angle_increment) # Shoulder check
-        offset_180 = int(math.radians(110) / msg.angle_increment) # Look backwards
 
         # Get ZONES (Wide slices instead of single rays)
         front_slice = msg.ranges[idx - offset_20 : idx + offset_20]
         left_slice  = msg.ranges[idx + offset_20 : idx + offset_75]
         right_slice = msg.ranges[idx - offset_75 : idx - offset_20]
-        back_slice = msg.ranges[idx - offset_180: idx - offset_180]
         
         # THE NEW "SHOULDER" ZONES (Check sides to avoid clipping corners)
         shoulder_left_slice  = msg.ranges[idx + offset_75 : idx + offset_110]
@@ -152,11 +150,10 @@ class AutoDriver(Node):
         dist_right = self.get_min_dist(right_slice)
         dist_shoulder_l = self.get_min_dist(shoulder_left_slice)
         dist_shoulder_r = self.get_min_dist(shoulder_right_slice)
-        dist_back = self.get_min_dist(back_slice)
 
         cmd = Twist()
 
-        # Count collisions (Now also checking shoulders)
+        # Count collisions
         if dist_front <= 0.15 or dist_shoulder_l <= 0.12 or dist_shoulder_r <= 0.12:
             self.collisions += 1
 
@@ -178,11 +175,10 @@ class AutoDriver(Node):
 
         # --- CONTROL LOGIC ---
 
-        # 0. THE V-SHAPE TRAP (Dead end / Corner)
+        # V - Shape
         # If the front AND both sides are blocked, we are in a corner. We need to reverse and turn hard to escape.
         if dist_front < self.DIST_VSHAPE and dist_left < self.DIST_VSHAPE and dist_right < self.DIST_VSHAPE:
             self.DIST_VSHAPE = 0.25
-            # cmd.linear.x = self.SPEED_REVERSE
             print("V-Shape")
             cmd.angular.z = self.TURN_EXTREME # Choose one fixed direction to break out of the V-shape
             
@@ -209,7 +205,7 @@ class AutoDriver(Node):
 
         self.publisher_.publish(cmd)
         self.linear_speeds.append(cmd.linear.x)
-
+    # Calculate Nan% in LiDAR 
     def NaNPercentage(self,msg):
         angles = msg.angle_min + np.arange(len(msg.ranges)) * msg.angle_increment
         ranges_np = np.array(msg.ranges, dtype=float)
