@@ -1,7 +1,6 @@
 from gpiozero import LED
 from time import sleep
 
-# Vi fortæller, at LED'en sidder på GPIO pin 17
 led = LED(17)
 
 print("LED blinker nu... (Tryk Ctrl+C for at stoppe)")
